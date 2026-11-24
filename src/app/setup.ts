@@ -71,6 +71,22 @@ export class Setup {
       return undefined
     })
   }
+  /**
+   * Resolve the repository GitHub currently reports for `name` through the agent CLI, so a former name of a repository is
+   * recognized as the same repository after a rename. Falls back to the resolved deployment's CLI; returns undefined when
+   * GitHub reports no readable repository under that name.
+   */
+  async resolveRepository(name: string, cli = this.resolved?.github.cli): Promise<string | undefined> {
+    if (!cli || !/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(name)) return undefined
+    const output = await this.probe()([cli, 'api', `repos/${name}`]).catch(() => undefined)
+    if (output === undefined) return undefined
+    try {
+      const repository = JSON.parse(output) as { full_name?: unknown }
+      return typeof repository?.full_name === 'string' ? repository.full_name : undefined
+    } catch {
+      return undefined
+    }
+  }
   async blockCommands(blocked: readonly string[]): Promise<void> {
     if (this.resolved) await writeEnvironment(this.resolved, blocked)
   }

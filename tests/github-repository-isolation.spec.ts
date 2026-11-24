@@ -5,6 +5,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { OutboundMessage } from '../src/core/index.ts'
 import { Commands } from '../src/infra/commands.ts'
+import { KV } from '../src/kv.ts'
 import { githubKind } from '../src/sources/github.ts'
 import { githubAddress, githubChannel, githubTarget } from '../src/sources/github-trigger.ts'
 import { testDeployment } from './fixtures/deployment.ts'
@@ -106,6 +107,29 @@ describe('repository isolation', () => {
     // The save changed nothing: the Source still watches the repository this state directory records.
     expect(store.settings().sources.github!.config).toMatchObject({ repository: 'acme/widgets' })
     expect(store.get('github-repository')).toBe('acme/widgets')
+  })
+
+  it('allows saving the new name after a repository is renamed while the runtime is running', async () => {
+    h = await startRuntime()
+    const { settings, store } = h.runtime
+    const github = settings.block('source:github')
+    const value = github.value as { enabled: boolean; config: Record<string, unknown> }
+    // The running deployment still carries the former name, which GitHub resolves to the new canonical name.
+    expect(await settings.save('source:github', { ...value, config: { ...value.config, repository: 'acme/renamed' } }, github.revision, 'panel'))
+      .toMatchObject({ saved: true, restarting: true })
+    expect(store.settings().sources.github!.config).toMatchObject({ repository: 'acme/renamed' })
+  })
+
+  it('allows recovery after a rename while setup fails and the record holds the former name', async () => {
+    h = await startRuntime()
+    const { settings, store } = h.runtime
+    store.set(KV.github.repository, 'acme/old')
+    vi.spyOn(h.runtime.setup, 'configured').mockReturnValue(false)
+    const github = settings.block('source:github')
+    const value = github.value as { enabled: boolean; config: Record<string, unknown> }
+    expect(await settings.save('source:github', { ...value, config: { ...value.config, repository: 'acme/renamed' } }, github.revision, 'panel'))
+      .toMatchObject({ saved: true, restarting: true })
+    expect(store.settings().sources.github!.config).toMatchObject({ repository: 'acme/renamed' })
   })
 
   it('lets a state directory that belongs to no repository yet set one', async () => {

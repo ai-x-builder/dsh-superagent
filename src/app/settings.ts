@@ -69,7 +69,7 @@ export interface SettingsHost {
   /** Source host passed to source kinds' policy syncs and label refreshes. */
   readonly sourceHost: SourceHost
   /** Setup state, account/command checks, and restart trigger when setup-read fields change. */
-  readonly setup: Pick<Setup, 'configured' | 'deployment' | 'checkAccounts' | 'blockCommands' | 'restart'>
+  readonly setup: Pick<Setup, 'configured' | 'deployment' | 'checkAccounts' | 'resolveRepository' | 'blockCommands' | 'restart'>
   /** Triggers an immediate pass so work newly allowed by a settings save runs right away. */
   requestPass(): void
 }
@@ -140,14 +140,19 @@ export class Settings {
   /**
    * Refuses a repository change in a state directory that already belongs to a repository: its Threads, Triggers, and read
    * cursors are keyed by Issue and PR number, so reusing them across repositories could deliver to the wrong audience.
+   * A repository renamed on GitHub keeps its records under its former name, so GitHub resolves the recorded name before the
+   * save is refused.
    * @throws UserError (`repositorySwitch`) naming the recorded repository and the requested one.
    */
-  private refuseRepositorySwitch(repository: string): void {
+  private async refuseRepositorySwitch(repository: string, cli: string | undefined): Promise<void> {
     const { store, setup } = this.host
-    // The running deployment is current, so a repository renamed on GitHub still resolves to it; the record covers a state
-    // directory whose setup currently fails, when no deployment is available.
+    // The running deployment or the state record names the repository this directory belongs to; either may be a former
+    // name after a GitHub rename, which `resolveRepository` checks below.
     const previous = (setup.configured() ? setup.deployment.repository : undefined) ?? store.get(KV.github.repository)
-    if (previous && !sameName(repository, previous)) throw new UserError('repositorySwitch', { repository, previous })
+    if (!previous || sameName(repository, previous)) return
+    const renamed = await setup.resolveRepository(previous, cli)
+    if (renamed && sameName(renamed, repository)) return
+    throw new UserError('repositorySwitch', { repository, previous })
   }
   /**
    * Validates and saves one settings block against its `revision`; a no-op save records no new revision, a changed policy
@@ -182,7 +187,10 @@ export class Settings {
     const resolved = setupChanged(current, candidate) ? await this.host.setup.checkAccounts(block, candidate) : undefined
     // Switching the repository in a state directory that already belongs to one would reuse the earlier repository's Threads,
     // Triggers, and read cursors; require a fresh state directory instead.
-    if (resolved && switched) this.refuseRepositorySwitch(resolved.repository)
+    if (resolved && switched) {
+      const cli = candidate.sources.github?.config.cli
+      await this.refuseRepositorySwitch(resolved.repository, typeof cli === 'string' ? cli : undefined)
+    }
     if (stale()) throw new SettingsConflict('Settings changed during the checks. Reload before saving.')
     // Re-read current settings after async checks in case unrelated blocks were saved concurrently.
     const old = store.settings()

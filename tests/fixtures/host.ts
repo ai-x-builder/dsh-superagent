@@ -151,6 +151,10 @@ export async function startRuntime(seed?: (store: Store) => void) {
     [`${AGENT} api user`]: '{"login":"agent-bot","id":7}',
     [`${AGENT} api repos/acme/widgets --jq {name: .full_name, push: .permissions.push}`]: '{"name":"acme/widgets","push":true}\n',
     [`${AGENT} api repos/acme/gadgets --jq {name: .full_name, push: .permissions.push}`]: '{"name":"acme/gadgets","push":true}\n',
+    [`${AGENT} api repos/acme/renamed --jq {name: .full_name, push: .permissions.push}`]: '{"name":"acme/renamed","push":true}\n',
+    // A former repository name resolves through GitHub's redirect to the repository's current canonical name.
+    [`${AGENT} api repos/acme/widgets`]: '{"full_name":"acme/renamed"}\n',
+    [`${AGENT} api repos/acme/old`]: '{"full_name":"acme/renamed"}\n',
     [`${BOT} auth status`]: JSON.stringify({ appId: 'cli_bot', brand: 'feishu', identities: { bot: { status: 'ready' } } }),
     [`${BOT} config strict-mode`]: 'strict-mode: bot (source: profile)',
     [`${BOT} api GET /open-apis/bot/v3/info --as bot --format ndjson`]: '{"bot":{"open_id":"ou_bot"},"code":0,"msg":"ok"}',
