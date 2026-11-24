@@ -31,15 +31,20 @@ describe('repository isolation', () => {
     const first = testDeployment({ repository: 'acme/widgets' })
     const second = testDeployment({ repository: 'acme/gadgets' })
     const message = reply(githubChannel(42, 'https://github.com/acme/widgets/issues/42'))
-    // The configured repository changed before the queued reply went out.
+    // The configured repository changed before the queued reply went out; GitHub still reports acme/widgets as itself.
     const other = new Commands(() => second, {}, signal())
-    const otherGh = vi.spyOn(other, 'gh'), otherPages = vi.spyOn(other, 'pages')
+    const otherRun = vi.spyOn(other, 'run').mockImplementation(async (_program, args) =>
+      args[1] === 'repos/acme/widgets' ? '"acme/widgets"' : '{}')
+    const otherPages = vi.spyOn(other, 'pages')
     expect(await githubKind.channel!.send({ commands: other }, message)).toBe('misdirected')
-    expect(otherGh).not.toHaveBeenCalled()
+    // The mismatch is checked against GitHub; the reply is not posted.
+    expect(otherRun.mock.calls.map(([, args]) => args)).toEqual([['api', 'repos/acme/widgets', '--jq', '.full_name']])
     expect(otherPages).not.toHaveBeenCalled()
     // Before this record carried a repository, the stored URL alone bound it; an older receipt is refused the same way.
+    otherRun.mockClear()
     const legacy = reply({ source: 'github', thread: 'github:42', address: { number: '42', url: 'https://github.com/acme/widgets/issues/42' } })
     expect(await githubKind.channel!.send({ commands: other }, legacy)).toBe('misdirected')
+    expect(otherRun.mock.calls.map(([, args]) => args)).toEqual([['api', 'repos/acme/widgets', '--jq', '.full_name']])
     // In the repository that recorded it, the same reply goes to Issue 42.
     const mine = new Commands(() => first, {}, signal())
     vi.spyOn(mine, 'pages').mockResolvedValue([])
@@ -49,16 +54,33 @@ describe('repository isolation', () => {
       expect.stringContaining('Confidential status')])
   })
 
+  it('keeps a queued reply after its repository is renamed, which GitHub maps back to the configured repository', async () => {
+    // The Source is configured with the canonical name; the queued reply still names the repository's former name.
+    const commands = new Commands(() => testDeployment({ repository: 'acme/widgets' }), {}, signal())
+    const run = vi.spyOn(commands, 'run').mockImplementation(async (_program, args) =>
+      args[1] === 'repos/acme/old' ? '"acme/widgets"' : '{}')
+    vi.spyOn(commands, 'pages').mockResolvedValue([])
+    const message = reply({ source: 'github', thread: 'github:42',
+      address: { number: '42', repository: 'acme/old', url: 'https://github.com/acme/old/issues/42' } })
+    expect(await githubKind.channel!.send({ commands }, message)).toBe('sent')
+    expect(run).toHaveBeenCalledWith(commands.deployment.github.cli, ['api', 'repos/acme/old', '--jq', '.full_name'])
+    // The reply goes to the configured canonical repository, not to a same-numbered Issue of another one.
+    expect(run).toHaveBeenCalledWith(commands.deployment.github.cli, ['api', 'repos/acme/widgets/issues/42/comments', '--method',
+      'POST', '-f', expect.stringContaining('Confidential status')])
+  })
+
   it('refuses a stored target whose URL names another repository or another number', async () => {
     const commands = new Commands(() => testDeployment({ repository: 'acme/widgets' }), {}, signal())
-    const gh = vi.spyOn(commands, 'gh'), pages = vi.spyOn(commands, 'pages')
+    const run = vi.spyOn(commands, 'run').mockImplementation(async (_program, args) =>
+      args[1]?.startsWith('repos/') ? JSON.stringify(args[1].slice('repos/'.length)) : '{}')
+    const pages = vi.spyOn(commands, 'pages')
     const addresses: Record<string, string>[] = [{ number: '42', url: 'https://github.com/acme/gadgets/issues/42' }, // another repository
       { number: '42', url: 'https://github.com/acme/widgets/issues/43' }, // another number
       { number: '42', repository: 'acme/gadgets', url: 'https://github.com/acme/widgets/issues/42' }] // a contradicting record
     for (const address of addresses) {
       expect(await githubKind.channel!.send({ commands }, reply({ source: 'github', thread: 'github:42', address }))).toBe('misdirected')
     }
-    expect(gh).not.toHaveBeenCalled()
+    expect(run.mock.calls.some(([, args]) => args.includes('--method'))).toBe(false)
     expect(pages).not.toHaveBeenCalled()
   })
 

@@ -136,7 +136,12 @@ export async function startRuntime(seed?: (store: Store) => void) {
   const directory = mkdtempSync(join(tmpdir(), 'orchestrator-host-'))
   const AGENT = join(directory, 'agent-gh'), BOT = join(directory, 'lark-bot')
   const repository = { default_branch: 'master', permissions: { push: true } }
-  vi.spyOn(Commands.prototype, 'gh').mockImplementation(async args => args[1] === 'user' ? { login: 'agent-bot' } : repository)
+  vi.spyOn(Commands.prototype, 'gh').mockImplementation(async args => {
+    if (args[1] === 'user') return { login: 'agent-bot' }
+    // A repository identity read answers with the name GitHub currently reports, as `--jq .full_name` does.
+    if (args.includes('--jq') && args[1]?.startsWith('repos/')) return args[1].slice('repos/'.length)
+    return repository
+  })
   vi.spyOn(Commands.prototype, 'lark').mockResolvedValue({ users: [{ member_id: MEMBER, name: 'Alice' }], has_more: false })
   vi.spyOn(Commands.prototype, 'git').mockResolvedValue('')
   vi.spyOn(Commands.prototype, 'run').mockResolvedValue('{"ok":true,"data":{}}')

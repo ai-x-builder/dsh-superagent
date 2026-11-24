@@ -206,7 +206,7 @@ The blocks:
 
 Changing a CLI runs the corresponding setup check first. A failed check returns 400 with details in `setup`. A successful account change, or any save while setup is pending, returns `restarting: true`. The API is temporarily unavailable while the application restarts.
 
-A state directory belongs to the first repository its setup resolves, because Threads, Triggers and read cursors are keyed by Issue and PR number. Saving a different repository returns 400 with `repositorySwitch`: start dsh-superagent with a fresh state directory, then set the repository there. A queued reply whose stored address names another repository is dropped with `channelOtherRepository` and is never posted to the configured repository's same-numbered Issue or PR.
+A state directory belongs to the first repository its setup resolves, because Threads, Triggers and read cursors are keyed by Issue and PR number. Saving a different repository returns 400 with `repositorySwitch`: start dsh-superagent with a fresh state directory, then set the repository there. A queued reply whose stored address names another repository is dropped with `channelOtherRepository` and is never posted to the configured repository's same-numbered Issue or PR. A repository renamed on GitHub still counts as the one the address recorded: its former name is resolved through GitHub before the reply is sent to the canonical repository.
 
 ```sh
 api=http://127.0.0.1:3082/orchestrator/api
