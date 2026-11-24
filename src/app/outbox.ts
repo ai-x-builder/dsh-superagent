@@ -47,6 +47,7 @@ export class Outbox implements OutboxPort {
     // A permanently unreachable target (such as a recalled message or deleted Issue) settles as `channelGone` so its receipt prevents retries.
     const result = await sources.send(receipt, commands)
     if (result === 'waiting') throw new Later('The Source is not installed')
-    store.receipts.settle(receipt, result === 'gone' ? 'channelGone' : 'sent')
+    // A reply whose stored target belongs to another repository is never sent to the configured repository's same number.
+    store.receipts.settle(receipt, result === 'gone' ? 'channelGone' : result === 'misdirected' ? 'channelOtherRepository' : 'sent')
   }
 }

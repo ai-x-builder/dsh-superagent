@@ -327,7 +327,9 @@ describe('feishu source', () => {
 describe('github source', () => {
   it('normalizes comments and reviews into triggers with review-thread channels, and marks only GitHub Apps and machine accounts as automated', () => {
     const trigger = commentTrigger({ id: 5, body: 'nit', user: { login: 'review-bot[bot]', type: 'Bot' }, html_url: 'https://github.com/acme/widgets/pull/7#discussion_r5', updated_at: '2026-09-01T00:00:00Z' }, { number: 7, isPr: true, prAuthor: 'agent-bot' }, 'inline', 'agent-bot')
-    expect(trigger).toMatchObject({ source: 'github', threads: [{ source: 'github', id: '7' }], human: false, channel: { address: { number: '7', url: 'https://github.com/acme/widgets/pull/7#discussion_r5' } }, meta: { commentId: 5, kind: 'inline', prAuthor: 'agent-bot' } })
+    expect(trigger).toMatchObject({ source: 'github', threads: [{ source: 'github', id: '7' }], human: false,
+      channel: { address: { number: '7', repository: 'acme/widgets', url: 'https://github.com/acme/widgets/pull/7#discussion_r5' } },
+      meta: { commentId: 5, kind: 'inline', prAuthor: 'agent-bot' } })
     // A review bot on an ordinary account counts as a person here; the prompts name it as automated.
     expect(commentTrigger({ id: 6, body: 'x', user: { login: 'review-bot', type: 'User' } }, { number: 7, isPr: false }, 'conversation', 'agent-bot').human).toBe(true)
     expect(commentTrigger({ id: 7, body: 'x', user: { login: 'ci[bot]', type: 'Bot' } }, { number: 7, isPr: false }, 'conversation', 'agent-bot').human).toBe(false)

@@ -25,7 +25,7 @@ The tabs follow the workflow: **Overview**, **Source**, **Trigger**, **Eval**, *
 
 ### Reading individual records
 
-A dropped message links to its Ticket, or to its Thread when it has no Ticket. The Source page explains whether its conversation disappeared or the Source stopped listening to it.
+A dropped message links to its Ticket, or to its Thread when it has no Ticket. The Source page explains whether its conversation disappeared, the Source stopped listening to it, or the reply target belongs to another repository.
 
 A human follow-up still owned by an Executor is marked **Delivered to Ticket**, without an Eval. The Thread also shows hand-back reasons and context-only Subscriptions. **Evaluate again** can send that follow-up to Eval, or retry a Trigger with no effective judgement: one filtered by its Source, an unavailable Eval, or a delivered message with neither a non-stop Decision nor an Executor acknowledgement.
 

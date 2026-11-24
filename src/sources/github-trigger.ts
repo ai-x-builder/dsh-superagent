@@ -4,17 +4,34 @@ import { key, type ChannelRef, type Trigger } from '../core/index.ts'
 import { escapeRegExp, sameName } from '../infra/text.ts'
 
 export const SOURCE = 'github'
-/** GitHub reply address: issue/PR conversation, or a review thread when `url` points at a discussion comment. */
-export const githubChannel = (number: number, url?: string): ChannelRef =>
-  ({ source: SOURCE, thread: `github:${number}`, address: { number: String(number), ...(url ? { url } : {}) } })
+export interface GithubTarget { repository: string; number: number; pr: boolean; discussion?: number }
+/**
+ * Parses a GitHub web or API URL for the repository it names and its Issue, PR, or review comment;
+ * returns undefined for other URLs. The repository identity decides where a reply may go.
+ */
+export function githubTarget(url: string): GithubTarget | undefined {
+  const address = /^https:\/\/(?:api\.github\.com\/repos|github\.com)\/([^/]+\/[^/]+)\/(issues|pulls?)\/(\d+)\/?(?:#discussion_r(\d+)|#[\w-]*)?$/i
+  const match = address.exec(url)
+  if (!match) return undefined
+  return { repository: match[1]!, number: Number(match[3]), pr: match[2]!.toLowerCase() !== 'issues', ...match[4] ? { discussion: Number(match[4]) } : {} }
+}
+/**
+ * GitHub reply address: issue/PR conversation, or a review thread when `url` points at a discussion comment.
+ * The address carries the repository its URL names, so a reply remains bound to it after the configured repository changes.
+ */
+export const githubChannel = (number: number, url?: string): ChannelRef => {
+  const repository = url ? githubTarget(url)?.repository : undefined
+  return { source: SOURCE, thread: `github:${number}`,
+    address: { number: String(number), ...(repository ? { repository } : {}), ...(url ? { url } : {}) } }
+}
 export const githubPage = (repository: string, number: number, pr = false): string =>
   `https://github.com/${repository}/${pr ? 'pull' : 'issues'}/${number}`
 /** Parses a web or API URL for an Issue, PR, or review comment in `repository`; returns undefined for other URLs or repositories. */
 export function githubAddress(url: string, repository: string): { number: number; pr: boolean; discussion?: number } | undefined {
-  const address = /^https:\/\/(?:api\.github\.com\/repos|github\.com)\/([^/]+\/[^/]+)\/(issues|pulls?)\/(\d+)\/?(?:#discussion_r(\d+)|#[\w-]*)?$/i
-  const match = address.exec(url)
-  if (!match || !sameName(match[1]!, repository)) return undefined
-  return { number: Number(match[3]), pr: match[2]!.toLowerCase() !== 'issues', ...match[4] ? { discussion: Number(match[4]) } : {} }
+  const target = githubTarget(url)
+  if (!target || !sameName(target.repository, repository)) return undefined
+  const { number, pr, discussion } = target
+  return { number, pr, ...discussion !== undefined ? { discussion } : {} }
 }
 /** GitHub returns a deleted account as `null` and displays it as `ghost`. */
 export const UserSchema = z.looseObject({ login: z.string(), type: z.string().optional() }).nullable()

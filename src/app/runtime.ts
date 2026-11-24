@@ -20,6 +20,7 @@ import { Commands } from '../infra/commands.ts'
 import type { Deployment, Machine } from '../deployment.ts'
 import { environmentOf, ticketEnvironment, type Variable } from './execution-environment.ts'
 import type { SetupProblem } from '../setup.ts'
+import { sameName } from '../infra/text.ts'
 import { DshExecutor, sourceTrigger, triggerMessage, workerSessionId } from '../executor/dsh.ts'
 import { ticketCard } from './cards.ts'
 import { MasterAssessor } from './assessment.ts'
@@ -204,6 +205,15 @@ export class Runtime extends Service implements SourceHost {
     if (!await this.setup.run(this.store.settings())) {
       this.runtimeHealth.set({ ...health('paused', 'setupPending'), at: now() })
       return
+    }
+    // Record which repository this state directory belongs to so a later Settings save cannot switch to another one.
+    // A repository renamed on GitHub resolves to its new canonical name, which updates the record while the configured name
+    // still names it; a record left different from the configured name marks a switch made outside a Settings save.
+    const repository = this.setup.deployment.repository
+    const recorded = this.store.get(KV.github.repository)
+    const configured = this.store.settings().sources.github?.config.repository
+    if (recorded === undefined || (typeof configured === 'string' && sameName(configured, recorded))) {
+      this.store.set(KV.github.repository, repository)
     }
     this.sessions.install()
     this.executor.install()

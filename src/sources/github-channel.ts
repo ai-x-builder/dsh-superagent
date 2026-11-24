@@ -5,7 +5,7 @@ import { CliError } from '../infra/commands.ts'
 import { sameName } from '../infra/text.ts'
 import type { SourceContext } from './host.ts'
 import type { ChannelLink, ChannelLinks } from './kind.ts'
-import { githubAddress, githubPage } from './github-trigger.ts'
+import { githubAddress, githubPage, githubTarget } from './github-trigger.ts'
 
 const CommentSchema = z.looseObject({
   id: z.number(), body: z.string().nullish(), in_reply_to_id: z.number().nullish(), user: z.looseObject({ login: z.string() }).nullish(),
@@ -14,19 +14,26 @@ const CommentSchema = z.looseObject({
 const gone = (error: unknown): boolean => error instanceof CliError
   && (error.code === 410 || (error.code === 403 && /locked/i.test(error.message)))
 const missing = (error: unknown): boolean => error instanceof CliError && (error.code === 404 || error.code === 410)
-/** Posts a comment or review-thread reply with an embedded HTML marker so retries do not create duplicate comments. */
-export async function sendGithub(host: Pick<SourceContext, 'commands'>, message: OutboundMessage): Promise<'sent' | 'gone'> {
+/**
+ * Posts a comment or review-thread reply with an embedded HTML marker so retries do not create duplicate comments.
+ * A reply whose stored address names another repository is never sent to the configured repository's Issue or PR with the
+ * same number: it settles as `misdirected`, which the Outbox records as `channelOtherRepository`.
+ */
+export async function sendGithub(host: Pick<SourceContext, 'commands'>, message: OutboundMessage): Promise<'sent' | 'gone' | 'misdirected'> {
   const { commands } = host
   const { repository, github } = commands.deployment
   const number = Number(message.channel.address.number)
   if (!number) throw new Error('Missing GitHub reply target')
+  const { address } = message.channel
+  // Older receipts may carry only the URL; both forms name the repository that recorded the reply.
+  if (address.repository && !sameName(address.repository, repository)) return 'misdirected'
+  const target = address.url ? githubTarget(address.url) : undefined
+  if (address.url && (!target || !sameName(target.repository, repository) || target.number !== number)) return 'misdirected'
   try {
-    // Retained trigger URLs also route replies queued before thread-aware delivery.
-    const address = githubAddress(message.channel.address.url ?? '', repository)
     let rootId: number | undefined
-    if (address?.pr && address.discussion && address.number === number) {
+    if (target?.pr && target.discussion !== undefined) {
       // Fall back to a top-level PR comment if the target inline review comment was deleted.
-      const source = await commands.api(CommentSchema, `pulls/comments/${address.discussion}`)
+      const source = await commands.api(CommentSchema, `pulls/comments/${target.discussion}`)
         .catch((error: unknown) => { if (missing(error)) return undefined; throw error })
       rootId = source ? source.in_reply_to_id ?? source.id : undefined
     }
@@ -35,8 +42,8 @@ export async function sendGithub(host: Pick<SourceContext, 'commands'>, message:
     const mine = (comment: z.infer<typeof CommentSchema>) => sameName(comment.user?.login ?? '', github.login)
       && (rootId === undefined || comment.in_reply_to_id === rootId) && (comment.body ?? '').includes(marker)
     if ((await commands.pages(CommentSchema, path)).some(mine)) return 'sent'
-    const target = rootId === undefined ? path : `${path}/${rootId}/replies`
-    await commands.api(z.unknown(), target, '--method', 'POST', '-f', `body=${message.text}\n\n${marker}`)
+    const endpoint = rootId === undefined ? path : `${path}/${rootId}/replies`
+    await commands.api(z.unknown(), endpoint, '--method', 'POST', '-f', `body=${message.text}\n\n${marker}`)
     return 'sent'
   } catch (error) {
     if (gone(error)) return 'gone'
@@ -45,8 +52,9 @@ export async function sendGithub(host: Pick<SourceContext, 'commands'>, message:
 }
 export function githubLink(address: Record<string, string>, links: ChannelLinks): ChannelLink {
   const number = address.number ?? ''
-  const review = !!links.repository && !!githubAddress(address.url ?? '', links.repository)?.discussion
-  return { url: address.url ?? (links.repository ? githubPage(links.repository, Number(number)) : ''),
+  const repository = address.repository || links.repository
+  const review = !!repository && !!githubAddress(address.url ?? '', repository)?.discussion
+  return { url: address.url ?? (repository ? githubPage(repository, Number(number)) : ''),
     label: review ? { zh: `GitHub #${number} 的 review 讨论`, en: `Review discussion on GitHub #${number}` }
       : { zh: `GitHub #${number}`, en: `GitHub #${number}` } }
 }

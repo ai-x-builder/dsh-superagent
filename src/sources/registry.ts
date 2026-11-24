@@ -89,10 +89,11 @@ export class SourceRegistry implements SourceScope {
     })
   }
   /**
-   * Sends a message idempotently through its Channel's kind; returns `'waiting'` while the kind is not installed, or
-   * `'gone'` when the target (or a kind without channels) can never receive it.
+   * Sends a message idempotently through its Channel's kind; returns `'waiting'` while the kind is not installed,
+   * `'gone'` when the target (or a kind without channels) can never receive it, and `'misdirected'` when the target
+   * belongs to another repository or configured instance.
    */
-  async send(message: OutboundMessage, commands: Commands): Promise<'sent' | 'gone' | 'waiting'> {
+  async send(message: OutboundMessage, commands: Commands): Promise<'sent' | 'gone' | 'misdirected' | 'waiting'> {
     const kind = this.kinds.get(message.channel.source)
     if (!kind) return 'waiting'
     return kind.channel ? kind.channel.send({ commands }, message) : 'gone'

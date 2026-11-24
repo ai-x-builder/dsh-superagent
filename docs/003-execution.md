@@ -182,9 +182,9 @@ Messages of other Tickets, and messages of no Ticket, do not wait for it.
 
 A message with failed attempts is a system problem until it goes out or is withdrawn.
 
-A message is dropped only when its Source no longer listens to the conversation, or when the Source answers that the conversation can never receive it; while its Source is off, it waits.
+A message is dropped only when its Source no longer listens to the conversation, when the Source answers that the conversation can never receive it, or when its stored target belongs to another repository; while its Source is off, it waits.
 
-The Sources answer that for a deleted Issue or a locked conversation on GitHub, and for a recalled message or one Feishu no longer finds on Feishu.
+The Sources answer that for a deleted Issue or a locked conversation on GitHub, and for a recalled message or one Feishu no longer finds on Feishu. A GitHub reply that names another repository than the configured one is never posted to that repository's same-numbered Issue or PR.
 
 A reply to a review comment that no longer exists goes to the pull request's conversation instead.
 

@@ -30,7 +30,7 @@ it('refuses a save of a block that another save changed during its model or acco
   expect(store.settings().executor).toMatchObject({ maxWorkers: 2, model: executor.model })
   // An account check that a save of the same Source outruns is refused the same way.
   const accounts = deferred<void>()
-  vi.spyOn(Setup.prototype, 'checkAccounts').mockImplementationOnce(() => accounts.promise)
+  vi.spyOn(Setup.prototype, 'checkAccounts').mockImplementationOnce(() => accounts.promise.then(() => undefined))
   const github = settings.block('source:github')
   const value = github.value as { enabled: boolean; config: Record<string, unknown> }
   const moved = settings.save('source:github', { ...value, config: { ...value.config, cli: '/opt/bin/gh-other' } }, github.revision,

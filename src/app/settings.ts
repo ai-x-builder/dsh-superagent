@@ -7,6 +7,7 @@ import type { Settings as SettingsValue, SettingsBlock, SettingsOrigin, Settings
 import type { SourceHost } from '../sources/host.ts'
 import type { HealthBoard, HealthEntry } from '../infra/health.ts'
 import type { SourceRegistry } from '../sources/registry.ts'
+import { sameName } from '../infra/text.ts'
 import { resolveRoleModel } from './role-models.ts'
 import { changedPaths, settingsNotice } from './notices.ts'
 import type { Sessions } from './sessions.ts'
@@ -68,7 +69,7 @@ export interface SettingsHost {
   /** Source host passed to source kinds' policy syncs and label refreshes. */
   readonly sourceHost: SourceHost
   /** Setup state, account/command checks, and restart trigger when setup-read fields change. */
-  readonly setup: Pick<Setup, 'configured' | 'checkAccounts' | 'blockCommands' | 'restart'>
+  readonly setup: Pick<Setup, 'configured' | 'deployment' | 'checkAccounts' | 'blockCommands' | 'restart'>
   /** Triggers an immediate pass so work newly allowed by a settings save runs right away. */
   requestPass(): void
 }
@@ -137,13 +138,25 @@ export class Settings {
     return { block, revision: store.blockRevision(block as SettingsSave), value }
   }
   /**
+   * Refuses a repository change in a state directory that already belongs to a repository: its Threads, Triggers, and read
+   * cursors are keyed by Issue and PR number, so reusing them across repositories could deliver to the wrong audience.
+   * @throws UserError (`repositorySwitch`) naming the recorded repository and the requested one.
+   */
+  private refuseRepositorySwitch(repository: string): void {
+    const { store, setup } = this.host
+    // The running deployment is current, so a repository renamed on GitHub still resolves to it; the record covers a state
+    // directory whose setup currently fails, when no deployment is available.
+    const previous = (setup.configured() ? setup.deployment.repository : undefined) ?? store.get(KV.github.repository)
+    if (previous && !sameName(repository, previous)) throw new UserError('repositorySwitch', { repository, previous })
+  }
+  /**
    * Validates and saves one settings block against its `revision`; a no-op save records no new revision, a changed policy
    * version notifies affected open tickets, and changing a setup-read field (`SETUP_FIELDS`, such as an account CLI) or any
    * change saved while waiting for setup (`!this.host.setup.configured()`) restarts `dsh-superagent` so setup runs again.
    * @param origin - Caller origin; restricts execution-environment and account-CLI changes to `'panel'` (a guardrail against prompt-injected tool calls, not an OS security boundary, since agents run shell commands; `origin` has no default so no caller receives panel privileges implicitly).
    * @returns Save outcome with the block's current `revision`, whether `policy_changed`, whether `restarting`, and `context_delivery` status (`'injected'` or `'pending'`).
    * @throws SettingsConflict when `block`'s revision changed before or during validation checks.
-   * @throws UserError | z.ZodError when `block` is unknown, the source is not installed, `value` is invalid (such as an `executor` block carrying `paused`, which only `pause` sets), a non-panel `origin` changes panel-only fields, or a role-model or account check fails.
+   * @throws UserError | z.ZodError when `block` is unknown, the source is not installed, `value` is invalid (such as an `executor` block carrying `paused`, which only `pause` sets), a non-panel `origin` changes panel-only fields, a role-model or account check fails, or a GitHub repository change would reuse another repository's records.
    */
   async save(block: SettingsBlock, value: unknown, revision: number, origin: SettingsOrigin) {
     const { store, sources, engine, sessions } = this.host
@@ -164,7 +177,12 @@ export class Settings {
       catch (error) { throw new UserError('modelUnavailable', { block, error: error instanceof Error ? error.message : String(error) }) }
     }
     rules.guard?.(current, candidate, origin)
-    if (setupChanged(current, candidate)) await this.host.setup.checkAccounts(block, candidate)
+    const switched = block === 'source:github'
+      && current.sources.github?.config.repository !== candidate.sources.github?.config.repository
+    const resolved = setupChanged(current, candidate) ? await this.host.setup.checkAccounts(block, candidate) : undefined
+    // Switching the repository in a state directory that already belongs to one would reuse the earlier repository's Threads,
+    // Triggers, and read cursors; require a fresh state directory instead.
+    if (resolved && switched) this.refuseRepositorySwitch(resolved.repository)
     if (stale()) throw new SettingsConflict('Settings changed during the checks. Reload before saving.')
     // Re-read current settings after async checks in case unrelated blocks were saved concurrently.
     const old = store.settings()
