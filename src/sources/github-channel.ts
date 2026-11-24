@@ -27,7 +27,8 @@ async function sameRepository(commands: Commands, stored: string): Promise<boole
   if (sameName(stored, repository)) return true
   if (!repositoryName.test(stored)) return false
   try {
-    const name = await commands.gh<string>(['api', `repos/${stored}`, '--jq', '.full_name'])
+    const response = await commands.gh<{ full_name?: unknown } | null>(['api', `repos/${stored}`])
+    const name = response?.full_name
     return typeof name === 'string' && sameName(name, repository)
   } catch (error) {
     if (missing(error)) return false

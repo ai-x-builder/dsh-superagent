@@ -138,8 +138,9 @@ export async function startRuntime(seed?: (store: Store) => void) {
   const repository = { default_branch: 'master', permissions: { push: true } }
   vi.spyOn(Commands.prototype, 'gh').mockImplementation(async args => {
     if (args[1] === 'user') return { login: 'agent-bot' }
-    // A repository identity read answers with the name GitHub currently reports, as `--jq .full_name` does.
-    if (args.includes('--jq') && args[1]?.startsWith('repos/')) return args[1].slice('repos/'.length)
+    // A repository identity read returns the repository object, including the name GitHub currently reports.
+    const repositoryPath = /^repos\/([^/]+\/[^/]+)$/.exec(args[1] ?? '')
+    if (args[0] === 'api' && args.length === 2 && repositoryPath) return { ...repository, full_name: repositoryPath[1] }
     return repository
   })
   vi.spyOn(Commands.prototype, 'lark').mockResolvedValue({ users: [{ member_id: MEMBER, name: 'Alice' }], has_more: false })
